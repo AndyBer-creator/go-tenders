@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 
-	"github.com/AndyBer-creator/go-tenders/model"
+	"go-tenders/model"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
@@ -89,7 +89,7 @@ func (s *PostgresStorage) GetUserBids(ctx context.Context, userId string, limit,
 	var bids []model.Bid
 	for rows.Next() {
 		var b model.Bid
-		if err := rows.Scan(&b.Id, &b.Title, &b.Amount, &b.CreatedAt, &b.UpdatedAt); err != nil {
+		if err := rows.Scan(&b.Id, &b.AuthorId, &b.Description, &b.CreatedAt); err != nil {
 			return nil, err
 		}
 		bids = append(bids, b)
@@ -110,7 +110,7 @@ func (s *PostgresStorage) EditBid(ctx context.Context, bidId string, params mode
             description = $2
         WHERE id = $3
     `
-	_, err := s.db.ExecContext(ctx, query, params.Title, params.Description, bidId)
+	_, err := s.db.ExecContext(ctx, query, params.Username, bidId)
 	return err
 }
 
@@ -123,30 +123,45 @@ func (s *PostgresStorage) SubmitBidFeedback(ctx context.Context, bidId string, p
             rating = EXCLUDED.rating,
             updated_at = NOW()
     `
-	_, err := s.db.ExecContext(ctx, query, bidId, params.FeedbackText, params.Rating)
+	_, err := s.db.ExecContext(ctx, query, bidId, params.BidFeedback, params.Username)
 	return err
 }
 
 func (s *PostgresStorage) RollbackBid(ctx context.Context, bidId string, version int32, params model.RollbackBidParams) error {
-	return s.execTx(ctx, func(q *Queries) error {
-		// Копируем текущую версию в историю
-		err := q.ArchiveCurrentBid(ctx, bidId)
-		if err != nil {
-			return err
-		}
-		// Восстанавливаем выбранную версию из истории
-		err = q.RestoreBidVersion(ctx, bidId, version)
-		if err != nil {
-			return err
-		}
-		return nil
-	})
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	// Копируем текущую версию предложения в историю
+	_, err = tx.ExecContext(ctx, `
+        INSERT INTO bid_history (bid_id, data, version)
+        SELECT id, data, version FROM bids WHERE id = $1
+    `, bidId)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	// Восстанавливаем выбранную версию из истории
+	_, err = tx.ExecContext(ctx, `
+        UPDATE bids
+        SET data = (SELECT data FROM bid_history WHERE bid_id = $1 AND version = $2),
+            version = $2
+        WHERE id = $1
+    `, bidId, version)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (s *PostgresStorage) GetBidStatus(ctx context.Context, bidId string) (*model.BidStatus, error) {
 	query := `SELECT status, updated_at FROM bids WHERE id = $1`
 	var status model.BidStatus
-	err := s.db.QueryRowContext(ctx, query, bidId).Scan(&status.Status, &status.UpdatedAt)
+	err := s.db.QueryRowContext(ctx, query, bidId).Scan(&status)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +208,7 @@ func (s *PostgresStorage) GetBidsForTender(ctx context.Context, tenderId string,
 	var bids []model.Bid
 	for rows.Next() {
 		var b model.Bid
-		if err := rows.Scan(&b.Id, &b.Title, &b.Description, &b.Amount, &b.UserId, &b.CreatedAt, &b.UpdatedAt); err != nil {
+		if err := rows.Scan(&b.Id, &b.Name, &b.Description, &b.Description, &b.AuthorId, &b.CreatedAt); err != nil {
 			return nil, err
 		}
 		bids = append(bids, b)
@@ -218,7 +233,7 @@ func (s *PostgresStorage) GetBidReviews(ctx context.Context, tenderId string, li
 	var reviews []model.BidReview
 	for rows.Next() {
 		var r model.BidReview
-		if err := rows.Scan(&r.Id, &r.BidId, &r.ReviewText, &r.Rating, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.Id, &r.Id, &r.Description, &r.CreatedAt); err != nil {
 			return nil, err
 		}
 		reviews = append(reviews, r)
@@ -242,7 +257,7 @@ func (s *PostgresStorage) GetTenders(ctx context.Context, limit, offset int) ([]
 	var tenders []model.Tender
 	for rows.Next() {
 		var t model.Tender
-		if err := rows.Scan(&t.Id, &t.Title, &t.Description, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.Id, &t.Name, &t.Description, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		tenders = append(tenders, t)
@@ -267,7 +282,7 @@ func (s *PostgresStorage) GetUserTenders(ctx context.Context, userId string, lim
 	var tenders []model.Tender
 	for rows.Next() {
 		var t model.Tender
-		if err := rows.Scan(&t.Id, &t.Title, &t.Description, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.Id, &t.Name, &t.Description, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		tenders = append(tenders, t)
@@ -280,19 +295,19 @@ func (s *PostgresStorage) CreateTender(ctx context.Context, tender model.Tender)
         INSERT INTO tenders (id, title, description, created_at, updated_at)
         VALUES ($1, $2, $3, NOW(), NOW())
     `
-	_, err := s.db.ExecContext(ctx, query, tender.Id, tender.Title, tender.Description)
+	_, err := s.db.ExecContext(ctx, query, tender.Id, tender.Name, tender.Description)
 	return err
 }
 
 func (s *PostgresStorage) EditTender(ctx context.Context, tenderId string, params model.EditTenderParams) error {
 	query := `
         UPDATE tenders
-        SET title = $1,
+        SET Username = $1,
             description = $2,
             updated_at = NOW()
         WHERE id = $3
     `
-	_, err := s.db.ExecContext(ctx, query, params.Title, params.Description, tenderId)
+	_, err := s.db.ExecContext(ctx, query, params.Username, params.Description, tenderId)
 	return err
 }
 
@@ -334,10 +349,10 @@ func (s *PostgresStorage) RollbackTender(ctx context.Context, tenderId string, v
 	return tx.Commit()
 }
 
-func (s *PostgresStorage) GetTenderStatus(ctx context.Context, tenderId string) (*model.TenderStatus, error) {
-	query := `SELECT status, updated_at FROM tenders WHERE id = $1`
+func (s *PostgresStorage) GetTenderStatus(ctx context.Context, tenderId string, params model.GetTenderStatusParams) (*model.TenderStatus, error) {
+	query := `SELECT status FROM tenders WHERE id = $1`
 	var status model.TenderStatus
-	err := s.db.QueryRowContext(ctx, query, tenderId).Scan(&status.Status, &status.UpdatedAt)
+	err := s.db.QueryRowContext(ctx, query, tenderId).Scan(&status)
 	if err != nil {
 		return nil, err
 	}

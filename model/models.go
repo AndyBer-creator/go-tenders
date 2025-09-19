@@ -342,7 +342,8 @@ type GetUserTendersParams struct {
 
 // EditTenderParams defines parameters for EditTender.
 type EditTenderParams struct {
-	Username Username `form:"username" json:"username"`
+	Username    Username `form:"username" json:"username"`
+	Description *string  `form:"description,omitempty" json:"description,omitempty"`
 }
 
 // RollbackTenderParams defines parameters for RollbackTender.
@@ -352,7 +353,8 @@ type RollbackTenderParams struct {
 
 // GetTenderStatusParams defines parameters for GetTenderStatus.
 type GetTenderStatusParams struct {
-	Username *Username `form:"username,omitempty" json:"username,omitempty"`
+	Username *Username    `form:"username,omitempty" json:"username,omitempty"`
+	Status   TenderStatus `form:"status" json:"status"`
 }
 
 // UpdateTenderStatusParams defines parameters for UpdateTenderStatus.

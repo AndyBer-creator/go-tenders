@@ -1,6 +1,6 @@
-module github.com/AndyBer-creator/go-tenders
+module go-tenders
 
-go 1.25.0
+go 1.25
 
 require (
 	github.com/jmoiron/sqlx v1.4.0

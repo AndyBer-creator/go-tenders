@@ -2,8 +2,9 @@ package api
 
 import (
 	"fmt"
-	"go-tenders/model"
 	"net/http"
+
+	"go-tenders/model"
 
 	"github.com/labstack/echo/v4"
 	"github.com/oapi-codegen/runtime"

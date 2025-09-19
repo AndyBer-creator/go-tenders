@@ -3,10 +3,10 @@ package server
 import (
 	"net/http"
 
-	"github.com/AndyBer-creator/go-tenders/api"
-	"github.com/AndyBer-creator/go-tenders/config"
-	"github.com/AndyBer-creator/go-tenders/model"
-	"github.com/AndyBer-creator/go-tenders/storage"
+	"go-tenders/api"
+	"go-tenders/config"
+	"go-tenders/model"
+	"go-tenders/storage"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -258,7 +258,7 @@ func (s *Server) EditTender(ctx echo.Context, tenderId model.TenderId, params mo
 }
 
 func (s *Server) RollbackTender(ctx echo.Context, tenderId model.TenderId, version int32, params model.RollbackTenderParams) error {
-	err := s.storage.RollbackTender(tenderId, version, params)
+	err := s.storage.RollbackTender(ctx, tenderId, version, params)
 	if err != nil {
 		s.logger.Error("RollbackTender error: ", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to rollback tender")
@@ -267,19 +267,14 @@ func (s *Server) RollbackTender(ctx echo.Context, tenderId model.TenderId, versi
 }
 
 func (s *Server) GetTenderStatus(ctx echo.Context, tenderId model.TenderId, params model.GetTenderStatusParams) error {
-	status, err := s.storage.GetTenderStatus(tenderId, params)
+	// Получаем стандартный context.Context из echo.Context
+	stdCtx := ctx.Request().Context()
+
+	// Вызываем метод хранения, передавая стандартный Context
+	status, err := s.storage.GetTenderStatus(stdCtx, tenderId, params)
 	if err != nil {
 		s.logger.Error("GetTenderStatus error: ", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to get tender status")
 	}
 	return ctx.JSON(http.StatusOK, status)
-}
-
-func (s *Server) RollbackTender(ctx echo.Context, tenderId model.TenderId, version int32, params model.RollbackTenderParams) error {
-	err := s.storage.RollbackTender(tenderId, version, params)
-	if err != nil {
-		s.logger.Error("RollbackTender error: ", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to rollback tender")
-	}
-	return ctx.NoContent(http.StatusNoContent)
 }

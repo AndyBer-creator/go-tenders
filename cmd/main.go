@@ -4,10 +4,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/AndyBer-creator/go-tenders/api"
-	"github.com/AndyBer-creator/go-tenders/config"
-	"github.com/AndyBer-creator/go-tenders/server"
-	"github.com/AndyBer-creator/go-tenders/storage"
+	"go-tenders/api"
+	"go-tenders/config"
+	"go-tenders/server"
+	"go-tenders/storage"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
