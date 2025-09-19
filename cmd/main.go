@@ -4,48 +4,47 @@ import (
 	"log"
 	"os"
 
-	"go-tenders/server"
-	"go-tenders/storage"
+	"github.com/AndyBer-creator/go-tenders/api"
+	"github.com/AndyBer-creator/go-tenders/config"
+	"github.com/AndyBer-creator/go-tenders/server"
+	"github.com/AndyBer-creator/go-tenders/storage"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 )
 
 func main() {
-	// Загрузить переменные из .env в окружение
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatalf("Error loading .env file: %v", err)
-	}
+	// Загружаем конфигурацию
+	cfg := config.LoadConfig() // Имплементация LoadConfig должна возвращать структуру с Host и Port
 
-	// Считать параметры из окружения
+	// Инициализируем хранилище (Postgres)
 	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		log.Fatal("DATABASE_URL is not set")
-	}
-
-	// Подключиться к базе
-	db, err := sqlx.Connect("postgres", dbURL)
+	store, err := storage.NewPostgresStorage(dbURL)
 	if err != nil {
-		log.Fatalf("Failed to connect to DB: %v", err)
-	}
-	defer db.Close()
-
-	// Создать хранилище
-	storageInstance := storage.NewPostgresStorage(db)
-
-	// Создать логгер (пример)
-	// loggerInstance := logger.NewLogger()
-
-	// Конфиг сервера
-	config := &server.Config{
-		Port: 8080,
+		log.Fatalf("Failed to initialize storage: %v", err)
 	}
 
-	// Создать сервер с внедрением storage и логгера
-	srv := server.NewServer(storageInstance, loggerInstance, config)
+	// Создаем сервер api.ServerInterface
+	apiServer := server.NewServer(store, nil, cfg)
 
-	// Запустить HTTP сервер (например, Echo)
-	srv.Start()
+	// Создаем Echo
+	e := echo.New()
+
+	// Встроенный логгер Echo для HTTP запросов
+	e.Use(middleware.Logger())
+
+	// Восстановление после паники и возврат 500
+	e.Use(middleware.Recover())
+
+	// Регистрируем API маршруты
+	api.RegisterHandlers(e, apiServer)
+
+	// Формируем адрес из конфигурации
+	addr := cfg.Host + ":" + cfg.Port
+	log.Printf("Starting server at %s", addr)
+
+	// Запускаем сервер
+	if err := e.Start(addr); err != nil {
+		log.Fatalf("Failed to start server: %v", err)
+	}
 }
